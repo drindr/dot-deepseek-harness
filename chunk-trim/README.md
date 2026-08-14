@@ -43,19 +43,55 @@ delivers every chunk event.
 
 ## Install
 
-In the `dsh web` profile (`~/.dsh/profiles/web`):
+In the `dsh web` profile (`~/.dsh/profiles/web`), using the portable
+`$DSH_HOME/plugins` convention (no absolute paths in the profile config —
+the symlinks below are the only machine-specific step):
 
-1. add `"chunk-trim": "link:/home/drin/workspace/dsh-plugin/chunk-trim"` to
-   `package.json` dependencies;
-2. add to `cordis.patch.yml`:
+1. expose the plugin packages under `$DSH_HOME/plugins` (source checkout can
+   live anywhere):
+
+   ```bash
+   PLUGIN_SRC=/path/to/dot-deepseek-harness
+   mkdir -p "$HOME/.dsh/plugins/@dsh-external"
+   ln -s "$PLUGIN_SRC/chunk-trim" "$HOME/.dsh/plugins/chunk-trim"
+   ln -s "$PLUGIN_SRC/ThreadTrail/threadtrail-server" "$HOME/.dsh/plugins/threadtrail-server"
+   ln -s "$PLUGIN_SRC/ThreadTrail/threadtrail-client" "$HOME/.dsh/plugins/threadtrail-client"
+   ln -s "$PLUGIN_SRC/dsh-terminal" "$HOME/.dsh/plugins/dsh-terminal"
+   ln -s "$PLUGIN_SRC/dsh-mobile" "$HOME/.dsh/plugins/@dsh-external/dsh-mobile"
+   ```
+
+2. add the relative `link:`/`file:` specs to `~/.dsh/profiles/web/package.json`
+   dependencies (resolved against `~/.dsh/profiles/web`, so `../../plugins/…`
+   lands in `$DSH_HOME/plugins`):
+
+   ```json
+   "dependencies": {
+     "@dsh-external/dsh-mobile": "link:../../plugins/@dsh-external/dsh-mobile",
+     "chunk-trim": "link:../../plugins/chunk-trim",
+     "dsh-terminal": "link:../../plugins/dsh-terminal",
+     "threadtrail-client": "file:../../plugins/threadtrail-client",
+     "threadtrail-server": "file:../../plugins/threadtrail-server"
+   }
+   ```
+
+   (`@dsh-external/dsh-mobile` also joins `dsh.profile.bundles` — it declares
+   `dsh.bundle.patch`.)
+
+3. add to `cordis.patch.yml`:
 
    ```yaml
    - insert:
        - id: chunk-trim
          name: chunk-trim
+       - id: threadtrail-server
+         name: threadtrail-server
+       - id: threadtrail-client
+         name: threadtrail-client
+       - id: terminal
+         name: dsh-terminal
    ```
 
-3. `pnpm install` in the profile dir, then **restart `dsh web`** — a brand-new
+4. `pnpm install` in the profile dir, then **restart `dsh web`** — a brand-new
    plugin needs a full profile reload to mount. (Host-side HMR only hot-swaps
    source changes of plugins that are *already mounted*; it does not reload
    `cordis.patch.yml`, which lives under the dot-directory `~/.dsh` that the
