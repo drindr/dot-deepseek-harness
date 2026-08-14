@@ -1,0 +1,9 @@
+[submodule "ThreadTrail"]
+	path = ThreadTrail
+	url = git@github.com:drindr/ThreadTrail.git
+[submodule "dsh-terminal"]
+	path = dsh-terminal
+	url = git@github.com:drindr/dsh-terminal.git
+[submodule "dsh-mobile"]
+	path = dsh-mobile
+	url = git@github.com:drindr/dsh-mobile.git

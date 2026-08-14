@@ -1,0 +1,8 @@
+# Local-only plugin (machine-specific patch, never pushed)
+tailscale-patch/
+
+# Runtime / tooling state
+.chrome-mobile/
+.pnpm-cache/
+.pnpm-store/
+.runtime/

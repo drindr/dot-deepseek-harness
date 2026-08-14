@@ -1,0 +1,19 @@
+{
+  "name": "chunk-trim",
+  "description": "dsh web host plugin: trims the assistant/chunk token-delta flood from session.history / subagent.history pages (keeps page boundaries and non-delta chunks) so a 50-message page drops from ~15k-41k events / 3.5-7.8 MB to a few hundred events.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}
