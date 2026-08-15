@@ -1,0 +1,28 @@
+{
+  "name": "recovery",
+  "description": "dsh host bundle: opens a recovery session (a fresh headless agent session over a minimal base-only tree) so you can diagnose and fix a plugin that breaks dsh startup. `dsh --profile recovery` reproduces the boot failure, finds the broken plugin, and repairs it — no Host, HTTP server, Web runtime, or browser layer mounts.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./startup": "./startup.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "startup.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}

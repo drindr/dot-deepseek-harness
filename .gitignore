@@ -6,3 +6,10 @@ tailscale-patch/
 .pnpm-cache/
 .pnpm-store/
 .runtime/
+
+# Scratch / debug artifacts (machine-local, not committed)
+.*.mjs
+.chrome-tmp/
+.debug/
+.npm-cache/
+.tmp/

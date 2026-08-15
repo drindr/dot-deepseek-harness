@@ -1,0 +1,19 @@
+{
+  "name": "flash-device-auth",
+  "description": "dsh host plugin: per-session debug-probe authorization. Authorize probes (VID:PID[:serial]) for one session; the patched sandbox binds their device nodes into the bwrap container so probe-rs / cargo-flash work under workspace-write without approval prompts. Subagents inherit; revocation via /flashdev.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}
