@@ -13,3 +13,13 @@ tailscale-patch/
 .debug/
 .npm-cache/
 .tmp/
+
+# CA material (self-signed certs/keys) — never commit
+*.crt
+*.cer
+*.pem
+*.key
+*.p12
+*.pfx
+pki/
+authorities/

@@ -1,2 +1,14 @@
 lib/
 node_modules/
+
+# CA material (self-signed root/intermediate certs + private keys) must
+# never be committed — the root cert is served on demand via the plugin
+# route, the private keys stay in ~/.local/share/caddy/pki.
+*.crt
+*.cer
+*.pem
+*.key
+*.p12
+*.pfx
+pki/
+authorities/
