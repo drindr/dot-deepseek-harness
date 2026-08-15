@@ -27,6 +27,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ensureCaddyBinary, startCaddy, stopCaddy, type CaddyHandle } from './caddy.ts'
 import { registerPushTriggers } from './notify.ts'
+import { setPushContact } from './push.ts'
 import { registerAssetRoutes, registerPushRoutes } from './routes.ts'
 
 /** Minimal structural face of the webServer service (no type dependency). */
@@ -43,7 +44,8 @@ export const inject = ['webServer']
 
 /** Plugin config: the HTTPS front authority and the loopback target. */
 export const Config = z.object({
-  /** Public hostname the HTTPS front listens on (must resolve to this host). */
+  /** Public hostname the HTTPS front listens on (must resolve to this host).
+   *  Provided through the profile's plugin config — never hardcoded here. */
   host: z.string().default(''),
   /** HTTPS listen port (non-privileged; 443 would need root or setcap). */
   port: z.number().default(8443),
@@ -63,6 +65,10 @@ interface CaddyConfig {
 
 export function apply(ctx: Context, config: CaddyConfig): void {
   const web = (ctx as unknown as { webServer: WebServerLike }).webServer
+  // Apple's push endpoint rejects a localhost VAPID subject (BadJwtToken);
+  // point it at the configured public host — kept out of the repo, supplied
+  // per deployment through the profile plugin config.
+  setPushContact(config.host)
   ctx.effect(() => {
     // The target port is read live so a harness config change is followed
     // (caddy restarts on HMR anyway).
@@ -75,6 +81,10 @@ export function apply(ctx: Context, config: CaddyConfig): void {
 
     void (async () => {
       try {
+        if (config.host === '') {
+          console.warn('[caddy-https] no host configured — set the plugin config host (e.g. your tailnet name) to enable the HTTPS front')
+          return
+        }
         const caddyPath = await ensureCaddyBinary(config.caddyPath === '' ? undefined : config.caddyPath)
         if (stopped) return
         handle = await startCaddy(caddyPath, { ...config, targetPort: target })

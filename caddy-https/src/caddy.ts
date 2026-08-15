@@ -80,12 +80,16 @@ export async function ensureCaddyBinary(explicit: string | undefined): Promise<s
   return BIN_PATH
 }
 
-/** The Caddyfile: self-signed TLS on the public host, proxied to loopback. */
+/** The Caddyfile: self-signed TLS on the public host, proxied to loopback.
+ *  `skip_install_trust` stops Caddy from auto-installing its internal root
+ *  into the system CA store — that path shells out to `sudo tee` and prompts
+ *  for a password on every start. Trust is a deliberate per-device step. */
 function caddyfile(cfg: CaddyConfig): string {
   return [
     '{',
     '\tadmin off',
     '\tauto_https disable_redirects',
+    '\tskip_install_trust',
     '}',
     '',
     `https://${cfg.host}:${cfg.port} {`,

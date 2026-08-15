@@ -33,6 +33,17 @@ function dataDir(): string {
   return join(homedir(), '.dsh', 'caddy-https')
 }
 
+/** VAPID `sub` claim. Apple's web.push.apple.com rejects a localhost
+ *  subject (BadJwtToken), so this is set from the configured public host at
+ *  apply time — the hostname lives in the local profile, never in the repo. */
+let vapidContact = 'mailto:webpush@localhost'
+
+/** Point the VAPID subject at the real public host (called with the plugin
+ *  config host; a no-op for an empty host). */
+export function setPushContact(host: string): void {
+  if (host !== '') vapidContact = `mailto:webpush@${host}`
+}
+
 /** Load VAPID keys, generating and persisting them on first use. */
 export async function loadVapidKeys(): Promise<VapidKeys> {
   const dir = dataDir()
@@ -93,7 +104,7 @@ export interface PushPayload {
  */
 export async function pushToAll(payload: PushPayload): Promise<{ sent: number; dropped: number }> {
   const keys = await loadVapidKeys()
-  webpush.setVapidDetails('mailto:admin@', keys.publicKey, keys.privateKey)
+  webpush.setVapidDetails(vapidContact, keys.publicKey, keys.privateKey)
   const subs = await listSubscriptions()
   let sent = 0
   let dropped = 0
