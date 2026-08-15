@@ -17,30 +17,34 @@
 // contiguity check keeps passing across page boundaries.
 //
 // What survives: user/assistant messages, tool call/result, step/turn
-// boundaries, and the non-delta chunk events (block-start/block-end/usage/
-// finish — a few hundred per page at most). The conversation view is built
-// from assistant/message content, so completed steps render unchanged; the
-// only degradation is the trajectory panel's per-token detail for
-// non-final/interrupted steps.
+// boundaries, and the sparse non-delta chunk events (usage/finish — one or
+// two per step). block-start/block-end chunks are dropped too: a block-end
+// carries the full final block text that the assistant/message content
+// already contains (a measured ~147 KB per 50-message page of pure
+// duplication), and the conversation view renders from assistant/message
+// only.
 //
 // No client half, no runtime dependencies: pure ESM, `main` points straight
 // at this file.
 
-const TOKEN_DELTA_CHUNK_TYPES = new Set([
+/** Chunk kinds dropped from history pages (redundant or token-level). */
+const DROPPED_CHUNK_TYPES = new Set([
 	"reasoning-delta",
 	"text-delta",
-	"tool-call-delta"
+	"tool-call-delta",
+	"block-start",
+	"block-end"
 ]);
 
-/** True for the token-sized streaming deltas that flood history pages. */
-function isTokenDeltaChunk(event) {
+/** True for the chunk events history pages can serve without (delta flood + boundary markers duplicated by assistant/message). */
+function isDroppedChunk(event) {
 	if (event.type !== "assistant/chunk") return false;
 	const chunk = event.data?.chunk;
-	return chunk !== void 0 && chunk !== null && TOKEN_DELTA_CHUNK_TYPES.has(chunk.type);
+	return chunk !== void 0 && chunk !== null && DROPPED_CHUNK_TYPES.has(chunk.type);
 }
 
 /**
- * Drop interior token-delta chunk events from one history page.
+ * Drop interior dropped-chunk events from one history page.
  * `entries` items are `{ event, view? }`. The first and last entries are
  * always kept (pagination contiguity across `loadOlder`); a page of fewer
  * than three events is returned untouched.
@@ -50,7 +54,7 @@ function trimChunkFlood(entries) {
 	const out = [];
 	const last = entries.length - 1;
 	for (let i = 0; i <= last; i++) {
-		if (i === 0 || i === last || !isTokenDeltaChunk(entries[i].event)) out.push(entries[i]);
+		if (i === 0 || i === last || !isDroppedChunk(entries[i].event)) out.push(entries[i]);
 	}
 	return out;
 }

@@ -1,0 +1,26 @@
+{
+  "name": "msg-collapse",
+  "description": "dsh web client plugin: collapses long user messages (large pasted text) in the conversation view — the built-in user bubble is wrapped, not replicated, and toggles between a clamped preview and full text on click.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "index.js",
+    "lib"
+  ],
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "page-lazy",
+  "description": "dsh web client plugin: adaptive pagination + idle prefetch for the conversation window (first open page 30 messages, later pages 50; one page prefetched in idle after open) to cut first-paint latency and hide scroll-up loading.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "index.js",
+    "lib"
+  ],
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}
