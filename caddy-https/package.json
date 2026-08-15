@@ -1,0 +1,28 @@
+{
+  "name": "caddy-https",
+  "description": "Caddy reverse-proxy + self-signed TLS for the dsh web GUI: serves the harness over HTTPS on a tailnet hostname (Caddy's internal CA), so iOS Safari PWA gains a secure context — the prerequisite for Web Push notifications on a plain-http/self-hosted-Headscale deployment.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node watch.mjs"
+  },
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}
