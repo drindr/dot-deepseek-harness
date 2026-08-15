@@ -26,7 +26,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ensureCaddyBinary, startCaddy, stopCaddy, type CaddyHandle } from './caddy.ts'
-import { registerAssetRoutes } from './routes.ts'
+import { registerPushTriggers } from './notify.ts'
+import { registerAssetRoutes, registerPushRoutes } from './routes.ts'
 
 /** Minimal structural face of the webServer service (no type dependency). */
 interface WebServerLike {
@@ -67,6 +68,8 @@ export function apply(ctx: Context, config: CaddyConfig): void {
     // (caddy restarts on HMR anyway).
     const target = config.targetPort ?? web.config.port ?? 3080
     const disposeRoutes = registerAssetRoutes(web, config)
+    const disposePush = registerPushRoutes(web)
+    const disposeTriggers = registerPushTriggers(ctx)
     let handle: CaddyHandle | null = null
     let stopped = false
 
@@ -93,6 +96,8 @@ export function apply(ctx: Context, config: CaddyConfig): void {
     return () => {
       stopped = true
       disposeRoutes()
+      disposePush()
+      disposeTriggers()
       if (handle !== null) stopCaddy(handle)
     }
   }, 'caddy-https teardown')

@@ -1,17 +1,22 @@
 /**
- * Asset routes for the caddy-https plugin: serve Caddy's internal root CA
- * plus a short install guide, so a phone can fetch and trust the CA in a
- * couple of taps (Safari → download profile → Settings → Certificate Trust
- * Settings → full trust).
+ * Asset + push routes for the caddy-https plugin:
+ *  - the service worker at /sw.js (scope / — controls the whole PWA),
+ *  - Caddy's internal root CA plus a short install guide,
+ *  - the Web Push surface: VAPID public key, subscribe/unsubscribe, and a
+ *    manual test endpoint (so the full notification chain can be verified
+ *    on-device before the harness event triggers land).
  */
 import { readFile } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { rootCertPath } from './caddy.ts'
+import { addSubscription, loadVapidKeys, pushToAll, removeSubscription, type StoredSubscription } from './push.ts'
+import { SW_SOURCE } from './sw.ts'
 
 interface WebServerLike {
   register(route: {
     kind: 'exact' | 'prefix'
     path: string
-    handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void | Promise<void>
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
   }): () => void
 }
 
@@ -49,14 +54,28 @@ const GUIDE_HTML = (cfg: RouteConfig): string => `<!doctype html>
 </body>
 </html>`
 
-function send(res: import('node:http').ServerResponse, status: number, body: Buffer | string, type: string): void {
+function send(res: ServerResponse, status: number, body: Buffer | string, type: string): void {
   const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8')
   res.writeHead(status, { 'content-type': type, 'content-length': buf.length, 'cache-control': 'no-cache' })
   res.end(buf)
 }
 
-const getOnly = (req: import('node:http').IncomingMessage): boolean =>
+const getOnly = (req: IncomingMessage): boolean =>
   req.method === 'GET' || req.method === 'HEAD'
+
+function sendJson(res: ServerResponse, status: number, value: unknown): void {
+  send(res, status, JSON.stringify(value), 'application/json; charset=utf-8')
+}
+
+/** Collect the request body as UTF-8 text. */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', reject)
+  })
+}
 
 /**
  * Mount the root-CA download + guide page. Returns the disposer that removes
@@ -81,8 +100,10 @@ export function registerAssetRoutes(web: WebServerLike, cfg: RouteConfig): () =>
       },
     }),
     web.register({
-      kind: 'prefix',
-      path: BASE,
+      // Exact only: a prefix route here would shadow the module loader's
+      // /plugins/<id>/client.js (longest-prefix wins over /plugins).
+      kind: 'exact',
+      path: `${BASE}/`,
       handler: (req, res) => {
         if (!getOnly(req)) {
           res.writeHead(405)
@@ -90,6 +111,122 @@ export function registerAssetRoutes(web: WebServerLike, cfg: RouteConfig): () =>
           return
         }
         send(res, 200, GUIDE_HTML(cfg), 'text/html; charset=utf-8')
+      },
+    }),
+  ]
+  return () => {
+    for (const dispose of disposers) dispose()
+  }
+}
+
+/**
+ * Mount the service worker and the Web Push API routes. Returns the
+ * disposer removing every route.
+ */
+export function registerPushRoutes(web: WebServerLike): () => void {
+  const disposers = [
+    // The service worker MUST live at the origin root so its default scope
+    // covers the whole PWA (a worker under /plugins/ would only control that
+    // subtree). Served from the harness's own webServer — no dist patches.
+    web.register({
+      kind: 'exact',
+      path: '/sw.js',
+      handler: (req, res) => {
+        if (!getOnly(req)) {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        send(res, 200, SW_SOURCE, 'text/javascript; charset=utf-8')
+      },
+    }),
+
+    web.register({
+      kind: 'exact',
+      path: `${BASE}/push/vapid-public-key`,
+      handler: async (req, res) => {
+        if (!getOnly(req)) {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        try {
+          const keys = await loadVapidKeys()
+          sendJson(res, 200, { key: keys.publicKey })
+        } catch (error) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'vapid unavailable' })
+        }
+      },
+    }),
+
+    web.register({
+      kind: 'exact',
+      path: `${BASE}/push/subscribe`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        try {
+          const body = JSON.parse(await readBody(req)) as Partial<StoredSubscription>
+          if (typeof body.endpoint !== 'string' || body.keys === undefined
+            || typeof body.keys.p256dh !== 'string' || typeof body.keys.auth !== 'string') {
+            sendJson(res, 400, { error: 'expected { endpoint, keys: { p256dh, auth } }' })
+            return
+          }
+          await addSubscription({
+            endpoint: body.endpoint,
+            keys: { p256dh: body.keys.p256dh, auth: body.keys.auth },
+            sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+            createdAt: Date.now(),
+          })
+          sendJson(res, 200, { ok: true })
+        } catch (error) {
+          sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad subscribe payload' })
+        }
+      },
+    }),
+
+    web.register({
+      kind: 'exact',
+      path: `${BASE}/push/unsubscribe`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        try {
+          const body = JSON.parse(await readBody(req)) as { endpoint?: string }
+          if (typeof body.endpoint !== 'string') {
+            sendJson(res, 400, { error: 'expected { endpoint }' })
+            return
+          }
+          await removeSubscription(body.endpoint)
+          sendJson(res, 200, { ok: true })
+        } catch (error) {
+          sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad unsubscribe payload' })
+        }
+      },
+    }),
+
+    web.register({
+      kind: 'exact',
+      path: `${BASE}/push/test`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        const { sent, dropped } = await pushToAll({
+          title: 'DSH 测试通知',
+          body: '推送链路正常 ✓（点按回到会话）',
+          tag: 'dsh-test',
+          url: '/',
+        })
+        sendJson(res, 200, { sent, dropped })
       },
     }),
   ]

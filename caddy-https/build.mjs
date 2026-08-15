@@ -1,7 +1,10 @@
 /**
  * Build script for caddy-https (mirrors the tailscale-patch pipeline).
- * Emits one ESM host artifact (lib/index.js); @deepseek-ai/* stays external
- * so it resolves through the profile's node_modules at runtime.
+ * Emits two artifacts:
+ *  - lib/index.js — the Node/host half (ESM): caddy provisioning + HTTPS
+ *    front + push API + event triggers. @deepseek-ai/* stays external.
+ *  - lib/client.js — the browser half (module-loader bundle): service-worker
+ *    registration + the notification toggle.
  */
 import { spawnSync } from 'node:child_process'
 import { globSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -35,6 +38,7 @@ function commitIfChanged(tmp, target) {
   return changed
 }
 
+/** Build the Node/host half into lib/index.js. @returns whether the artifact changed. */
 export function buildHost() {
   mkdirSync('lib', { recursive: true })
   const tmp = `lib/index.tmp.${process.pid}.js`
@@ -45,11 +49,32 @@ export function buildHost() {
     '--platform=node',
     '--target=node20',
     '--external:@deepseek-ai/*',
+    // ponytail: bundled CJS deps (web-push) call require("crypto"); define real require so esbuild's __require shim delegates
+    '--banner:js=import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
     `--outfile=${tmp}`,
   ])
   return commitIfChanged(tmp, 'lib/index.js')
 }
 
+/** Build the browser half into lib/client.js (module-loader bundle). */
+export function buildClient() {
+  mkdirSync('lib', { recursive: true })
+  const tmp = `lib/client.tmp.${process.pid}.js`
+  run([
+    'src/client/index.ts',
+    '--bundle',
+    '--format=cjs',
+    '--platform=browser',
+    '--target=es2020',
+    `--outfile=${tmp}`,
+    '--banner:js=window.__ModuleLoader__.load({ id: "caddy-https", factory: function (require) { var module = { exports: {} }; var exports = module.exports;',
+    '--footer:js=return module.exports; } });',
+  ])
+  return commitIfChanged(tmp, 'lib/client.js')
+}
+
+// CLI entry: `node build.mjs` (also keeps `pnpm run build` behavior).
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   buildHost()
+  buildClient()
 }
