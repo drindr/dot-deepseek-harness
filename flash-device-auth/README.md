@@ -45,25 +45,47 @@ bwrap 沙箱容器的 `/dev` 是稀疏 devtmpfs，**没有 `/dev/bus/usb`、`/de
 新设备接入：`/flashdev scan` 看 VID:PID → `/flashdev add <vid:pid[:serial]>` 即完成授权，
 **无需改代码或配置**。
 
+> **持久化 shell 会自动重启**：`add` / `remove` / `clear` 任一授权变更都会重置本会话的
+> 持久化 bash 终端。因为持久化 bash 只在首次 spawn 沙箱时把 `--dev-bind` 挂载固化进 bwrap，
+> 授权事件本身不会重开它；沙箱补丁（见下文）里对 `dsh-tool-bash-persistent` 的补丁会在
+> `sandbox/device-root` 事件发生时同步清掉该会话的终端缓存并关闭旧终端，于是下一次 `bash`
+> 调用直接用新策略重新起一个带齐授权设备节点的沙箱——无需手动重启 shell。
+
+**Agent 侧申请授权**：插件同时注册了 `flashdev_authorize` 工具。当 agent 遇到烧录设备
+不可访问（如 `probe-rs list` 显示 `(inaccessible)`）时，可调用该工具、按 `vid:pid[:serial]`、
+`/dev/path` 或 `"all"` 申请授权——会弹出用户审批，用户允许后才写入授权（fail-closed，等价于
+手动 `/flashdev add`）。
+
 ## 前置：沙箱补丁（必须）
 
-本插件依赖 `writableRoots` 的扩展钩子。DSH 安装树位于 npm/npx 缓存且升级即被替换，
-用补丁脚本管理（幂等、可回退、升级后重跑）：
+本插件的运行时部分（包装 `ctx.sandboxPolicy.resolve` 注入 `extraWritableRoots`）是纯
+插件实现的；但 DSH 的**执行层不认这个字段**——相关函数全是 ESM 模块内部绑定，
+cordis 插件在运行时无法替换，因此必须对安装树打文件补丁。DSH 安装树位于 npm/npx
+缓存且升级即被替换，用补丁脚本管理（幂等、可回退、升级后重跑）：
 
 ```bash
 node /home/drin/workspace/dsh-plugin/scripts/patch-probe-roots.mjs            # 应用
 node /home/drin/workspace/dsh-plugin/scripts/patch-probe-roots.mjs --revert   # 回退
 ```
 
-打补丁后**必须重启 `dsh web`**。补丁内容（全部加性，无 `extraWritableRoots` 时行为不变）：
+打补丁后**必须重启 `dsh web`**。补丁共 **5 处**（全部加性；无 `extraWritableRoots` /
+无 `sandbox/device-root` 事件时行为与上游完全一致）：
 
-| 位置 | 函数 | 作用 |
-|---|---|---|
-| `dsh-sandbox` | `writableRoots()` | seatbelt / fs 栅栏写入授权 |
-| `dsh-sandbox-local` | `bwrapProfileArgs()` | 把授权节点用 `--dev-bind` 挂进容器 |
-| `dsh-sandbox-local` | `landlockProfileArgs()` | Landlock 写入授权 |
+| # | 补丁位置 | 内容 | 缺了会怎样 |
+|---|---|---|---|
+| 1 | `dsh-sandbox/lib/index.js` | `writableRoots()` 合并 `policy.extraWritableRoots`（seatbelt + fs 栅栏的写根） | fs 工具与 seatbelt 仍把授权节点当只读，写设备被拒 |
+| 2 | `dsh-sandbox-local/lib/index.js` | `bwrapProfileArgs()` 对每个授权节点追加 `--dev-bind` | bwrap 容器内根本看不到设备节点，probe-rs 全部 `(inaccessible)` |
+| 3 | `dsh-sandbox-local/lib/index.js` | `landlockProfileArgs()` 把授权节点加入 readWrite | Landlock 内核层拒绝写设备节点 |
+| 4 | `dsh-session/lib/index.js` + `lib/types/known-event-types.js` | `KNOWN_SESSION_EVENT_TYPES` 注册 `sandbox/device-root` | **重启后任何用过 `/flashdev` 的会话日志被拒载**（持久化读路径拒绝未知事件类型；`session.append()` 不开放 `ignorable` 标记，插件无法自证可忽略） |
+| 5 | `dsh-tool-bash-persistent/lib/index.js` | 监听 `sandbox/device-root` 事件，重置该会话的持久化 shell | 授权变更后旧 shell 仍跑在旧沙箱里，新挂载不生效（`reset` 是模块闭包私有，插件够不到） |
 
 （仅 `workspace-write` 模式下生效；`read-only`/`danger-full-access` 语义不变。）
+
+> **为什么不做成纯插件**：补丁 1–3 的目标函数被 `dsh-fs-sandbox` /
+> `dsh-sandbox-local` 以 ESM live binding 直接 import，运行期不可替换；补丁 5 的
+> `reset` 闭包私有（枚举 `ctx.terminals.sessions` 强杀的替代路径会让下一次 bash 先
+> 报一次 `send failed` 再自愈）；补丁 4 如上所述无插件侧旁路。详见
+> [`../docs/local-setup.md`](../docs/local-setup.md) 末节。
 
 ### 实测发现（决定实现的关键结论）
 

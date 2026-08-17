@@ -108,3 +108,10 @@ ln -s "$PLUGIN_SRC/chunk-trim" "$HOME/.dsh/plugins/chunk-trim"
 - **recovery** 用 `dsh plugin --profile recovery add link:<src>/recovery` 安装，然后
   `dsh --profile recovery` 使用。
 - **dsh-mobile** 声明了 `dsh.bundle.patch`，装进 profile 后会自动加入 `dsh.profile.bundles`。
+
+## 本机配置（不进 git）
+
+`~/.dsh/settings.yaml`、profile 的 `package.json` / `cordis.patch.yml` 含机器专属值
+（主机名、绝对路径、API Key 环境变量名、探头序列号），不提交进 git。配置方法与
+占位符模板见 [`docs/local-setup.md`](docs/local-setup.md)，其中也说明了沙箱补丁
+为什么不能做成纯插件。
