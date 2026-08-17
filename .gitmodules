@@ -7,3 +7,6 @@
 [submodule "dsh-mobile"]
 	path = dsh-mobile
 	url = git@github.com:drindr/dsh-mobile.git
+[submodule "dsh-rerun"]
+	path = dsh-rerun
+	url = git@github.com:drindr/dsh-rerun.git
