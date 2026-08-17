@@ -178,3 +178,26 @@ ui-conversation:
 
 结论：保持「文件补丁 + 幂等脚本」是上游提供注册/钩子之前的最优解；脚本会在上游
 升级导致文本漂移时拒绝打补丁并报错，提醒更新。
+
+### rc.7（2026-08-17）核查记录
+
+升级到 `0.1.0-rc.7` 后重跑 `patch-probe-roots.mjs`：6 个锚点全部与 rc.7 源码精确
+匹配（`dsh-sandbox` / `dsh-sandbox-local` / `dsh-session` 源码零改动，
+`dsh-tool-bash-persistent` 仅改提示符/截断逻辑，`reset` 闭包结构未动），自测通过
+（`writableRoots({extraWritableRoots})` 正确返回）。同时逐项核查了 rc.7 是否新提供
+了插件侧 API 以取代文件补丁——结论：**没有**。
+
+- 1–3：rc.7 全树无 `extraWritableRoots` 字段、无 writable-root 注册钩子；
+  `dsh-fs-sandbox` 仍以 ESM live binding 直接 import `writableRoots`。
+- 4：`Session.append(type, data, ...opts)` 的 opts 仍只有 `sourceEventSeqs` /
+  `surfaceOp`，不接受 `ignorable`；`dsh-session-persistence` 仍对未知非 ignorable
+  事件类型整体拒载。
+- 5：`dsh-tool-bash-persistent` 仍只导出 `{Config, apply, inject, name}`，`reset`
+  闭包私有；插件侧强杀终端的路径在 rc.7 仍是「下一次 bash 报一次 send failed 再
+  自愈」。
+
+插件兼容性抽查（rc.6→rc.7 的实质代码差异）：`dsh-host-apiproxy`（设置命名空间与
+附件批量保存，`sessions/subagents.history` 签名不变）、`dsh-tools`（仅 code-mode
+提示文案）、`dsh-client-runtime`（删了一个错误字面量）、`dsh-client-ui-conversation`
+（仅 Safari 输入框修复 + CSS 哈希）、`dsh-client-ui-layout`（仅 CSS 哈希）。仓库内
+全部插件无需改动即可在 rc.7 下运行。
