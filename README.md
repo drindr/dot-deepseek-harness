@@ -60,9 +60,33 @@ workspace 下的源码、`node --check` + 再启动验证。无 Host / HTTP / We
 
 ## 子模块
 
-`ThreadTrail/`、`dsh-terminal/`、`dsh-mobile/` 是各自独立的 git 仓库（见
+`ThreadTrail/`、`dsh-terminal/`、`dsh-mobile/`、`dsh-rerun/` 是各自独立的 git 仓库（见
 [`.gitmodules`](.gitmodules)）。首次克隆本仓库后需 `git submodule update --init`。
 升级某个子模块时，在其目录内提交并推送，再回到本仓库 `git add <path>` 记录新指针。
+
+## 构建（重要）
+
+以下插件**只跟踪 `src/`**，`lib/` 是 gitignore 的构建产物——clone / pull 之后
+`lib/` 要么缺失、要么过期。**过期/占位的 lib 会静默失效**：dsh-mobile 曾带一个
+5 行的占位 `apply() {}`，manifest / 图标路由全部 404、PWA 图标退回模糊的 50px
+SVG favicon，全程无任何报错。因此每次更新代码后必须重建：
+
+```bash
+node scripts/build-plugins.mjs   # 统一驱动：逐个执行各插件自己声明的 build 脚本
+```
+
+构建命令**以各插件 `package.json` 里的 `build` 脚本为准**（插件自己负责构建），
+统一脚本只是按下面清单逐个调用，不硬编码任何构建细节：
+
+| 插件 | build 脚本（插件自声明） | 产物 |
+|---|---|---|
+| `caddy-https/` | `node build.mjs` | `lib/index.js`, `lib/client.js` |
+| `dsh-terminal/` | `node build.mjs` | `lib/index.js`, `lib/client.js` |
+| `dsh-mobile/` | `tsdown`（`pnpm build`） | `lib/index.js`, `lib/client.js`, `lib/index.d.ts` |
+| `dsh-rerun/` | `node build.mjs` | `lib/index.js`, `lib/client.js` |
+
+> 无 build 脚本、`lib/` 直接提交的插件（`chunk-trim` / `msg-collapse` /
+> `page-lazy` / `flash-device-auth`）不需要构建。
 
 ## 安装
 
