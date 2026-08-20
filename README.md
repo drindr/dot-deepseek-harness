@@ -12,6 +12,7 @@ git 子模块（集成终端、移动端 PWA、ThreadTrail 操作日志）。
 | [`msg-collapse/`](msg-collapse/README.md) | client web 插件 | 折叠会话视图里的超长用户消息 |
 | [`page-lazy/`](page-lazy/README.md) | client web 插件 | 会话窗口自适应分页 + 空闲预取 |
 | [`flash-device-auth/`](flash-device-auth/README.md) | host 插件 | 按会话授权烧录设备（`/flashdev`） |
+| [`folder-auth/`](folder-auth/README.md) | host 插件（独立仓库） | 按会话授权任意目录（`/fsauth`） |
 | [`recovery/`](recovery/README.md) | host bundle | `dsh --profile recovery` 极简救活会话 |
 | [`scripts/`](scripts/patch-probe-roots.mjs) | 工具 | 沙箱补丁（flash-device-auth 的依赖） |
 | [`ThreadTrail/`](ThreadTrail/README.md) | 子模块 | 提交间操作日志 / 代码↔会话回放 / rewind |
@@ -51,6 +52,16 @@ esptool 等在 `workspace-write` 沙箱下免审批直接烧录。用 `/flashdev
 > 依赖沙箱补丁：先 `node scripts/patch-probe-roots.mjs`（幂等，可 `--revert` 回退），
 > 再重启 `dsh web`。
 
+### folder-auth（host）
+
+按会话授权任意目录，让 agent 在 `workspace-write` 沙箱下写工作空间之外的指定文件夹免审批。
+用 `/fsauth` 命令管理：`add <绝对路径>` / `remove` / `list` / `clear`，授权按会话生效、
+子会话继承、可撤销。与 flash-device-auth 共用同一沙箱补丁（`extraWritableRoots` 对目录
+同样经 `--dev-bind` 生效，零补丁改动）。
+
+> ⚠️ 安全模型：`/fsauth add` 只校验「绝对路径且非空」，**不拦截任何敏感路径**——授权是
+> 人做的决定，详见 [`folder-auth/README.md`](folder-auth/README.md)。
+
 ### recovery（bundle）
 
 一个只挂 `dsh-base` 的一次性救活会话：当某个插件把 `dsh web` 搞到起不来时，
@@ -63,6 +74,9 @@ workspace 下的源码、`node --check` + 再启动验证。无 Host / HTTP / We
 `ThreadTrail/`、`dsh-terminal/`、`dsh-mobile/`、`dsh-rerun/` 是各自独立的 git 仓库（见
 [`.gitmodules`](.gitmodules)）。首次克隆本仓库后需 `git submodule update --init`。
 升级某个子模块时，在其目录内提交并推送，再回到本仓库 `git add <path>` 记录新指针。
+
+> `folder-auth/` 也是一个独立 git 仓库，**当前只在本地建仓（暂无远程、尚未注册为
+> submodule）**。远程就绪后 `git submodule add <url> folder-auth` 注册即可。
 
 ## 构建（重要）
 
@@ -84,6 +98,7 @@ node scripts/build-plugins.mjs   # 统一驱动：逐个执行各插件自己声
 | `dsh-terminal/` | `node build.mjs` | `lib/index.js`, `lib/client.js` |
 | `dsh-mobile/` | `tsdown`（`pnpm build`） | `lib/index.js`, `lib/client.js`, `lib/index.d.ts` |
 | `dsh-rerun/` | `node build.mjs` | `lib/index.js`, `lib/client.js` |
+| `folder-auth/` | `node build.mjs` | `lib/index.js` |
 
 > 无 build 脚本、`lib/` 直接提交的插件（`chunk-trim` / `msg-collapse` /
 > `page-lazy` / `flash-device-auth`）不需要构建。

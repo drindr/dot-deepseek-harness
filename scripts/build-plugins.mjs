@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 // src-only plugins whose gitignored lib/ must be rebuilt after checkout/pull.
-const PLUGINS = ['caddy-https', 'dsh-terminal', 'dsh-mobile', 'dsh-rerun']
+const PLUGINS = ['caddy-https', 'dsh-terminal', 'dsh-mobile', 'dsh-rerun', 'folder-auth']
 
 let failed = false
 for (const dir of PLUGINS) {
