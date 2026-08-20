@@ -10,3 +10,6 @@
 [submodule "dsh-rerun"]
 	path = dsh-rerun
 	url = git@github.com:drindr/dsh-rerun.git
+[submodule "dsh-codex"]
+	path = dsh-codex
+	url = https://github.com/Yan-Zero/dsh-codex.git
