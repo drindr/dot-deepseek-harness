@@ -8,8 +8,20 @@
 // /dev/ttyUSB*) are invisible inside it and flashing fails unless the call
 // escalates to danger-full-access (one approval prompt per flash). This
 // plugin lets a session authorize specific devices once; the patched sandbox
-// (see scripts/patch-probe-roots.mjs) then binds the authorized nodes into
-// the container, so flashing works under workspace-write with no prompts.
+// then binds the authorized nodes into the container, so flashing works under
+// workspace-write with no prompts.
+//
+// REQUIRED FILE PATCHES (scripts/patch-probe-roots.mjs — the runtime plugin
+// cannot replace these ESM-internal bindings; see README "前置：沙箱补丁"):
+//   1. dsh-sandbox              writableRoots() honors policy.extraWritableRoots
+//   2. dsh-sandbox-local        bwrapProfileArgs() --dev-binds the granted nodes
+//   3. dsh-sandbox-local        landlockProfileArgs() grants writes to them
+//   4. dsh-session (x2 files)   KNOWN_SESSION_EVENT_TYPES accepts the
+//                               "sandbox/device-root" events appended below —
+//                               without it, sessions using /flashdev REFUSE TO
+//                               LOAD after a restart
+//   5. dsh-tool-bash-persistent respawn the persistent shell on grant change so
+//                               the next bash call picks up the new --dev-binds
 //
 // Semantics:
 //   - Authorization is SESSION-scoped: `sandbox/device-root` events live in
@@ -22,6 +34,7 @@
 //   - Revocation: `/flashdev remove|clear`, or the session ending.
 //   - Anything not authorized behaves exactly as before (deny → human flow).
 
+import { defineTool } from "@deepseek-ai/dsh-tools";
 import { foldDeviceGrants, grantKey, resolveGrantedNodes, scanAttachedUsb } from "./devices.js";
 
 export const name = "flash-device-auth";
@@ -246,6 +259,65 @@ function registerCommands(ctx, catalog) {
 	});
 }
 
+// ── authorize tool ──────────────────────────────────────────────────────────
+
+/**
+ * Model-facing tool that lets the agent REQUEST device authorization when it
+ * hits an inaccessible probe/serial device. The request is gated by the shared
+ * approval service (same fail-closed flow as sandbox escalation): the user must
+ * allow it, and only `allowed-once` appends the grant. This keeps device
+ * access user-consented while removing the manual `/flashdev add` round-trip.
+ */
+function registerAuthorizeTool(ctx, catalog) {
+	ctx.inject(["tools", "approval"], (toolCtx) => {
+		toolCtx.tools.register(defineTool({
+			name: "flashdev_authorize",
+			description: "Request user approval to authorize a flash/debug device (probe or serial) for THIS session only. Use it when a flashing command fails because a probe/serial device is inaccessible. Specify the device by vid:pid[:serial] (e.g. 0d28:0204), a /dev path (e.g. /dev/ttyUSB0), or 'all'.",
+			parameters: {
+				device: {
+					type: "string",
+					required: true,
+					description: "Device to authorize: vid:pid[:serial] (e.g. 0d28:0204), a /dev path (e.g. /dev/ttyUSB0), or 'all'."
+				}
+			},
+			output: {
+				schema: { type: "string" },
+				render: (_args, value) => [{ type: "text", text: value }]
+			},
+			async execute(args, exec) {
+				const agent = exec.agent;
+				if (agent === undefined) throw new Error("flashdev_authorize requires an owning agent session");
+				const token = args.device.trim();
+				const parsed = parseGrantToken(token, catalog);
+				if (parsed.error !== undefined) throw new Error(parsed.error);
+				let grants;
+				let via = "";
+				if (parsed.all) {
+					const expanded = expandAll(catalog, scanAttachedUsb());
+					grants = expanded.grants;
+					via = ` (via ${expanded.source})`;
+				} else {
+					grants = [parsed.grant];
+				}
+				if (grants.length === 0) throw new Error("nothing to authorize: catalog is empty and no USB devices are currently attached");
+				const names = grants.map(describeGrant).join(", ");
+				const outcome = await toolCtx.approval.request({
+					agent,
+					toolName: "flashdev_authorize",
+					...exec.callId !== void 0 ? { callId: exec.callId } : {},
+					reason: `authorize flash/debug device(s) for this session${via}: ${names}`,
+					...exec.signal !== void 0 ? { signal: exec.signal } : {}
+				});
+				if (outcome !== "allowed-once") throw new Error(`device authorization ${outcome} for: ${names}`);
+				for (const grant of grants) {
+					agent.session.append("sandbox/device-root", grantEventData("add", grant));
+				}
+				return `authorized for this session${via}: ${names}`;
+			}
+		}));
+	});
+}
+
 // ── system-prompt context ───────────────────────────────────────────────────
 
 function injectPromptContext(ctx, catalog) {
@@ -259,7 +331,7 @@ function injectPromptContext(ctx, catalog) {
 				const grants = collectGrants(ctx.sessions, agent.session);
 				if (grants.length === 0) {
 					const labels = catalog.length > 0 ? ` (labels: ${catalog.map((entry) => entry.label).join(", ")})` : "";
-					return `Device access: NONE authorized for this session. If a flashing command fails because a probe/serial device is inaccessible, ask the USER to run \`/flashdev add <vid:pid[:serial]>\`, \`/flashdev add <device path>\` (e.g. /dev/ttyUSB0), or \`/flashdev add all\`${labels} to authorize devices for THIS session only. \`/flashdev scan\` lists attached USB devices.`;
+					return `Device access: NONE authorized for this session. If a flashing command fails because a probe/serial device is inaccessible, call the \`flashdev_authorize\` tool with the device's vid:pid[:serial], a /dev path, or "all" to request authorization (the user must approve it). The user can also run \`/flashdev add <vid:pid[:serial]|/dev/path|all>\` directly${labels}. \`/flashdev scan\` lists attached USB devices.`;
 				}
 				return `Device access: authorized for this session: ${grants.map(describeGrant).join(", ")}. Writes to these devices' nodes are allowed under workspace-write; do not escalate for them.`;
 			}
@@ -273,5 +345,6 @@ export function apply(ctx, config) {
 	const catalog = normalizeCatalog(config);
 	wrapResolve(ctx);
 	registerCommands(ctx, catalog);
+	registerAuthorizeTool(ctx, catalog);
 	injectPromptContext(ctx, catalog);
 }

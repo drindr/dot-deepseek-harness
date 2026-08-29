@@ -10,3 +10,9 @@
 [submodule "dsh-rerun"]
 	path = dsh-rerun
 	url = git@github.com:drindr/dsh-rerun.git
+[submodule "dsh-codex"]
+	path = dsh-codex
+	url = https://github.com/drindr/dsh-codex.git
+[submodule "provider-proxy"]
+	path = provider-proxy
+	url = https://github.com/drindr/dsh-provider-proxy.git

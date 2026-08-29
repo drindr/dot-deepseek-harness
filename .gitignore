@@ -1,6 +1,9 @@
 # Local-only plugin (machine-specific patch, never pushed)
 tailscale-patch/
 
+# Local node_modules symlinks for link:-installed plugins (machine-specific)
+flash-device-auth/node_modules/
+
 # Runtime / tooling state
 .chrome-mobile/
 .pnpm-cache/

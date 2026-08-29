@@ -12,7 +12,8 @@ git 子模块（集成终端、移动端 PWA、ThreadTrail 操作日志）。
 | [`msg-collapse/`](msg-collapse/README.md) | client web 插件 | 折叠会话视图里的超长用户消息 |
 | [`page-lazy/`](page-lazy/README.md) | client web 插件 | 会话窗口自适应分页 + 空闲预取 |
 | [`flash-device-auth/`](flash-device-auth/README.md) | host 插件 | 按会话授权烧录设备（`/flashdev`） |
-| [`folder-auth/`](folder-auth/README.md) | host 插件（独立仓库） | 按会话授权任意目录（`/fsauth`） |
+| [`folder-auth/`](folder-auth/README.md) | host 插件 | 按会话授权任意目录（`/fsauth`） |
+| [`provider-proxy/`](provider-proxy/README.md) | host + client 插件 | 按 provider 配置 HTTP(S) 代理，带 Settings UI |
 | [`recovery/`](recovery/README.md) | host bundle | `dsh --profile recovery` 极简救活会话 |
 | [`scripts/`](scripts/patch-probe-roots.mjs) | 工具 | 沙箱补丁（flash-device-auth 的依赖） |
 | [`ThreadTrail/`](ThreadTrail/README.md) | 子模块 | 提交间操作日志 / 代码↔会话回放 / rewind |
@@ -62,6 +63,13 @@ esptool 等在 `workspace-write` 沙箱下免审批直接烧录。用 `/flashdev
 > ⚠️ 安全模型：`/fsauth add` 只校验「绝对路径且非空」，**不拦截任何敏感路径**——授权是
 > 人做的决定，详见 [`folder-auth/README.md`](folder-auth/README.md)。
 
+### provider-proxy（host + client）
+
+只让指定的 provider 走 HTTP(S) 代理：在 dsh 设置里新增 **Provider Proxy** 页面，配置写入
+`~/.dsh/settings.yaml` 的 `provider-proxy` namespace；默认内置一条 `openai -> api.openai.com`
+规则（默认关闭，勾选 Enabled 并填代理地址即可）。适合没有 OpenAI 兼容反代、只有 Clash/V2Ray 这类
+原始 HTTP(S) 代理的场景。
+
 ### recovery（bundle）
 
 一个只挂 `dsh-base` 的一次性救活会话：当某个插件把 `dsh web` 搞到起不来时，
@@ -75,8 +83,7 @@ workspace 下的源码、`node --check` + 再启动验证。无 Host / HTTP / We
 [`.gitmodules`](.gitmodules)）。首次克隆本仓库后需 `git submodule update --init`。
 升级某个子模块时，在其目录内提交并推送，再回到本仓库 `git add <path>` 记录新指针。
 
-> `folder-auth/` 也是一个独立 git 仓库，**当前只在本地建仓（暂无远程、尚未注册为
-> submodule）**。远程就绪后 `git submodule add <url> folder-auth` 注册即可。
+> `folder-auth/` 与其余插件一样作为本仓库的普通文件直接跟踪（非 submodule）。
 
 ## 构建（重要）
 
@@ -101,7 +108,7 @@ node scripts/build-plugins.mjs   # 统一驱动：逐个执行各插件自己声
 | `folder-auth/` | `node build.mjs` | `lib/index.js` |
 
 > 无 build 脚本、`lib/` 直接提交的插件（`chunk-trim` / `msg-collapse` /
-> `page-lazy` / `flash-device-auth`）不需要构建。
+> `page-lazy` / `flash-device-auth` / `provider-proxy`）不需要构建。
 
 ## 安装
 
@@ -119,7 +126,15 @@ ln -s "$PLUGIN_SRC/chunk-trim" "$HOME/.dsh/plugins/chunk-trim"
 在 `cordis.patch.yml` 里 `insert` 对应 id，`pnpm install` 后**重启 `dsh web`**。
 
 - **web 优化插件**（chunk-trim / msg-collapse / page-lazy）走上面的标准流程。
+- **provider-proxy** 走上面的标准流程，Settings UI 在 web 设置里自动出现。
 - **flash-device-auth** 需先打沙箱补丁（见上文），再照常挂进 profile。
 - **recovery** 用 `dsh plugin --profile recovery add link:<src>/recovery` 安装，然后
   `dsh --profile recovery` 使用。
 - **dsh-mobile** 声明了 `dsh.bundle.patch`，装进 profile 后会自动加入 `dsh.profile.bundles`。
+
+## 本机配置（不进 git）
+
+`~/.dsh/settings.yaml`、profile 的 `package.json` / `cordis.patch.yml` 含机器专属值
+（主机名、绝对路径、API Key 环境变量名、探头序列号），不提交进 git。配置方法与
+占位符模板见 [`docs/local-setup.md`](docs/local-setup.md)，其中也说明了沙箱补丁
+为什么不能做成纯插件。
