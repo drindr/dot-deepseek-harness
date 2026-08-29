@@ -45,6 +45,20 @@ ui-conversation:
   busyEnter: steer
 ```
 
+### provider-proxy 配置（可选）
+
+```yaml
+provider-proxy:
+  providers:
+    openai:
+      enabled: true
+      proxyUrl: http://127.0.0.1:7890
+      hosts:
+        - api.openai.com
+```
+
+也可以通过 dsh 设置的 **Provider Proxy** 页面编辑。
+
 ## 3. `~/.dsh/profiles/web/package.json` — 插件装载
 
 用 `link:` 指向本仓库各插件目录（绝对路径是唯一的机器专属部分）：
@@ -63,6 +77,7 @@ ui-conversation:
     "msg-collapse":       "link:<REPO>/msg-collapse",
     "page-lazy":          "link:<REPO>/page-lazy",
     "flash-device-auth":  "link:<REPO>/flash-device-auth",
+    "provider-proxy":    "link:<REPO>/provider-proxy",
     "dsh-terminal":       "link:<REPO>/dsh-terminal",
     "dsh-mobile":         "link:<REPO>/dsh-mobile",
     "tailscale-patch":    "link:<REPO>/tailscale-patch",
@@ -112,6 +127,12 @@ ui-conversation:
       #   catalog:
       #     - { label: <my-probe>, vid: "<vid>", pid: "<pid>", serial: "<serial>" }
 
+# provider-proxy：per-provider HTTP(S) 代理（Settings UI 里配置，默认 openai 官方规则）
+- insert:
+    - id: provider-proxy
+      name: provider-proxy
+      # config 一般不需要；默认内置 openai -> api.openai.com（禁用）
+
 # tailscale-patch：浏览器信任围栏放行的主机名（自建 Headscale 无法签 TLS）
 - insert:
     - id: tailscale-patch
@@ -144,6 +165,7 @@ ui-conversation:
       - <REPO>/msg-collapse
       - <REPO>/page-lazy
       - <REPO>/flash-device-auth
+      - <REPO>/provider-proxy
       - <REPO>/dsh-terminal
       - <REPO>/dsh-mobile
       - <REPO>/tailscale-patch
