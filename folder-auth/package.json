@@ -1,0 +1,29 @@
+{
+  "name": "folder-auth",
+  "description": "dsh host plugin: per-session folder authorization. Authorize absolute directory paths for one session; the patched sandbox bind-mounts them so the agent can write outside the workspace under workspace-write without approval prompts. Subagents inherit; revocation via /fsauth.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test"
+  },
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
