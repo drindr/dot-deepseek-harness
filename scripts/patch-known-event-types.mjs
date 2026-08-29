@@ -2,8 +2,9 @@
 // patch-known-event-types.mjs
 //
 // Idempotent patch for @deepseek-ai/dsh-session: register the custom
-// `sandbox/device-root` event type (written by the flash-device-auth plugin,
-// which ships in this workspace) into the persistence reader's
+// `sandbox/device-root` event type (written by the flash-device-auth plugin)
+// and the `sandbox/folder-root` event type (written by the folder-auth
+// plugin) — both ship in this workspace — into the persistence reader's
 // KNOWN_SESSION_EVENT_TYPES set.
 //
 // Why: the harness's session persistence REFUSES to read a log whose event
@@ -36,31 +37,31 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const EVENT_TYPE = "sandbox/device-root";
+const EVENT_TYPES = ["sandbox/device-root", "sandbox/folder-root"];
 
 // ── exact original → patched pairs ─────────────────────────────────────────
 
 // Two syntactic forms coexist: the bundled lib/index.js normally uses tabs +
 // double quotes; the source known-event-types.js uses 4-space + single quotes.
-// Each patch entry targets its file and its exact literal.
-const PATCHES = [
+// One patch entry per (file, event type): each inserts its type directly
+// before the `sandbox/mode` anchor and verifies by its own marker, so the
+// set stays idempotent per type regardless of which are already present.
+const PATCHES = EVENT_TYPES.flatMap((type) => [
 	{
 		file: "dsh-session/lib/types/known-event-types.js",
 		// 4-space indent, single quotes (source module)
 		original: `    'sandbox/mode',`,
-		patched: `    'sandbox/device-root',
-    'sandbox/mode',`,
-		verify: (source) => source.includes(`'sandbox/device-root',`)
+		patched: `    '${type}',\n    'sandbox/mode',`,
+		verify: (source) => source.includes(`'${type}',`)
 	},
 	{
 		file: "dsh-session/lib/index.js",
 		// tab indent, double quotes (bundled inlined copy)
 		original: `\t"sandbox/mode",`,
-		patched: `\t"sandbox/device-root",
-\t"sandbox/mode",`,
-		verify: (source) => source.includes(`"sandbox/device-root",`)
+		patched: `\t"${type}",\n\t"sandbox/mode",`,
+		verify: (source) => source.includes(`"${type}",`)
 	}
-];
+]);
 
 /** Locate installed @deepseek-ai trees that may host dsh-session. */
 function findPackageFiles() {
@@ -137,6 +138,6 @@ for (const path of files) {
 console.log("");
 if (revert) console.log("revert complete" + (changed === 0 ? " (nothing to revert)" : ""));
 else {
-	console.log(`patch complete (${changed} file(s) touched) — ${EVENT_TYPE} registered as a known session event type.`);
+	console.log(`patch complete (${changed} file(s) touched) — ${EVENT_TYPES.join(" + ")} registered as known session event types.`);
 	console.log("REMINDER: restart `dsh web` for the running process to load the patched module.");
 }
