@@ -22,6 +22,11 @@
  *     root needed).
  *  3. Serve the internal root CA at /plugins/caddy-https/root.crt plus a
  *     small install-guide page, so phones can fetch and trust the CA easily.
+ *  4. Serve the client-connection browser bundle with the configured front
+ *     host treated as loopback (src/host/loopback-client-patch.ts), so the
+ *     settings mirror uses host persistence and Settings → Models works
+ *     through the proxy instead of failing with "settings are unavailable
+ *     in this browser".
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -29,6 +34,7 @@ import { ensureCaddyBinary, startCaddy, stopCaddy, type CaddyHandle } from './ca
 import { registerPushTriggers } from './notify.ts'
 import { setPushContact } from './push.ts'
 import { registerAssetRoutes, registerPushRoutes } from './routes.ts'
+import { registerLoopbackClientPatch } from './host/loopback-client-patch.ts'
 
 /** Minimal structural face of the webServer service (no type dependency). */
 interface WebServerLike {
@@ -40,7 +46,12 @@ interface WebServerLike {
   }): () => void
 }
 
-export const inject = ['webServer']
+/** Minimal structural face of the clientModules service (no type dependency). */
+interface ClientModulesLike {
+  clientPath(id: string): string | undefined
+}
+
+export const inject = ['webServer', 'clientModules']
 
 /** Plugin config: the HTTPS front authority and the loopback target. */
 export const Config = z.object({
@@ -65,6 +76,7 @@ interface CaddyConfig {
 
 export function apply(ctx: Context, config: CaddyConfig): void {
   const web = (ctx as unknown as { webServer: WebServerLike }).webServer
+  const clientModules = (ctx as unknown as { clientModules: ClientModulesLike }).clientModules
   // Apple's push endpoint rejects a localhost VAPID subject (BadJwtToken);
   // point it at the configured public host — kept out of the repo, supplied
   // per deployment through the profile plugin config.
@@ -76,6 +88,12 @@ export function apply(ctx: Context, config: CaddyConfig): void {
     const disposeRoutes = registerAssetRoutes(web, config)
     const disposePush = registerPushRoutes(web)
     const disposeTriggers = registerPushTriggers(ctx)
+    // Serve the connection client bundle with the front host treated as
+    // loopback, so settings surfaces work through the proxy (see
+    // host/loopback-client-patch.ts). Skipped without a configured host.
+    const disposeLoopbackPatch = config.host === ''
+      ? () => {}
+      : registerLoopbackClientPatch(web, clientModules, config.host)
     let handle: CaddyHandle | null = null
     let stopped = false
 
@@ -108,6 +126,7 @@ export function apply(ctx: Context, config: CaddyConfig): void {
       disposeRoutes()
       disposePush()
       disposeTriggers()
+      disposeLoopbackPatch()
       if (handle !== null) stopCaddy(handle)
     }
   }, 'caddy-https teardown')
