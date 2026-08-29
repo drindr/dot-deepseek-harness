@@ -34,7 +34,6 @@
 //   - Revocation: `/flashdev remove|clear`, or the session ending.
 //   - Anything not authorized behaves exactly as before (deny → human flow).
 
-import { defineTool } from "@deepseek-ai/dsh-tools";
 import { foldDeviceGrants, grantKey, resolveGrantedNodes, scanAttachedUsb } from "./devices.js";
 
 export const name = "flash-device-auth";
@@ -270,21 +269,25 @@ function registerCommands(ctx, catalog) {
  */
 function registerAuthorizeTool(ctx, catalog) {
 	ctx.inject(["tools", "approval"], (toolCtx) => {
-		toolCtx.tools.register(defineTool({
+		toolCtx.tools.register({
 			name: "flashdev_authorize",
 			description: "Request user approval to authorize a flash/debug device (probe or serial) for THIS session only. Use it when a flashing command fails because a probe/serial device is inaccessible. Specify the device by vid:pid[:serial] (e.g. 0d28:0204), a /dev path (e.g. /dev/ttyUSB0), or 'all'.",
 			parameters: {
-				device: {
-					type: "string",
-					required: true,
-					description: "Device to authorize: vid:pid[:serial] (e.g. 0d28:0204), a /dev path (e.g. /dev/ttyUSB0), or 'all'."
-				}
+				type: "object",
+				properties: {
+					device: {
+						type: "string",
+						description: "Device to authorize: vid:pid[:serial] (e.g. 0d28:0204), a /dev path (e.g. /dev/ttyUSB0), or 'all'."
+					}
+				},
+				required: ["device"]
 			},
 			output: {
 				schema: { type: "string" },
 				render: (_args, value) => [{ type: "text", text: value }]
 			},
 			async execute(args, exec) {
+				if (typeof args?.device !== "string") throw new Error("flashdev_authorize requires a string device argument");
 				const agent = exec.agent;
 				if (agent === undefined) throw new Error("flashdev_authorize requires an owning agent session");
 				const token = args.device.trim();
@@ -314,7 +317,7 @@ function registerAuthorizeTool(ctx, catalog) {
 				}
 				return `authorized for this session${via}: ${names}`;
 			}
-		}));
+		});
 	});
 }
 
