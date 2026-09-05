@@ -1,33 +1,27 @@
 # page-lazy
 
-Client-side dsh web plugin that designs the conversation window's **page
-size** and **lazy-load timing** on top of the chunk-trim host fix.
+Client-side dsh web plugin that warms the conversation window's scroll-up
+path with an idle prefetch.
 
-## Design
+## dsh 0.1.2 rewrite
 
-After chunk-trim, a 50-message history page is ~372 events / ~650 KB and the
-server answers in ~130 ms — per-page cost is no longer the problem, so the
-levers are *when* and *how much* the browser pulls.
+The adaptive **page-size** half (first page 30 / later pages 50) was removed
+in the 0.1.2 rewrite: the `session.history({maxMessages})` seam it wrapped no
+longer exists (paging lives in a private `SessionEventStream` with a
+hardcoded `PAGE_MESSAGES = 50`), and 0.1.2 packs streaming `assistant/chunk`
+deltas natively (`@deepseek-ai/dsh-session/chunk-rows`, ~56× envelope
+reduction in both persistence and history transport) — the page-weight
+problem the size policy managed is gone. chunk-trim, whose trimming this
+policy was designed on top of, was retired for the same reason.
 
-### 1. Page sizes
-
-| phase | messages/page | why |
-|---|---|---|
-| first open | **30** | fast first paint (~260 events / ~440 KB post-trim); the viewport only shows ~10–15 messages anyway |
-| every later page (`loadOlder`, live re-pull) | **50** | fewer round trips for deep scrolls |
-
-Discriminator: `beforeSeq === undefined && window empty` ⇒ true first open
-(30). Everything else — including `doOpen`'s re-pull after a live update,
-which has no `beforeSeq` but a non-empty window — keeps 50 so an installed
-window is never shrunk.
-
-### 2. Lazy-load timing
+What remains — and has no native equivalent — is the **lazy-load timing**:
 
 - **Idle prefetch**: after a real cold→open transition, schedule ONE
   `loadOlder()` in idle (`requestIdleCallback`, 800 ms `setTimeout` fallback).
   It goes through the same anchor-preserving path as the manual button, so
-  the reader's scroll position is untouched. It self-disarms (fires only
-  while `events.length < 30 + 50`), so the download never cascades.
+  the reader's scroll position is untouched. It fires once per cold→open
+  transition (`wasOpen` skip) and a reconnect resync re-arms it naturally, so
+  the download is bounded to one page per open and never cascades.
 - **Manual "load earlier" button** stays as the deep-dive affordance
   (`hasMore` keeps rendering it).
 - **Scroll-proximity auto-load** (auto-trigger when the reader scrolls near
@@ -36,12 +30,9 @@ window is never shrunk.
   client plugin cannot reach cleanly. It is an upstream/UI-layer change —
   follow-up.
 
-### 3. Guards / coalescing
-
-- At most one page in flight (`loadingOlder` flag inside `loadOlder`).
-- Prefetch only when idle, `openState === "open"`, `hasMore`, and the window
-  is still below `FIRST_PAGE + PAGE_SIZE`.
-- No prefetch cascade; reconnect (`resync`) re-arms naturally.
+Guards: prefetch only when `openState === "open"`, `hasMore`, and not already
+`loadingOlder`; at most one page in flight (`loadingOlder` inside
+`loadOlder`); no cascade.
 
 ## Install
 
@@ -65,5 +56,4 @@ Same profile wiring as the other dev plugins (`~/.dsh/profiles/web`):
 
 - Served bundle: `curl -s http://127.0.0.1:3080/plugins/page-lazy/client.js`
 - Behavior (browser devtools network tab): opening a session issues one
-  `session.history` with `maxMessages: 30`, then, in idle, a second with
-  `beforeSeq` + `maxMessages: 50`.
+  `session/page`, then, in idle, a second paged request with a `beforeSeq`.

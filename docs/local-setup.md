@@ -24,8 +24,12 @@ node scripts/patch-probe-roots.mjs --revert  # 回退到上游原版
 | 1 | `dsh-sandbox` | `writableRoots()` 合并 `policy.extraWritableRoots`（seatbelt + fs fence） |
 | 2 | `dsh-sandbox-local` | bwrap 参数：`--dev-bind` 挂入授权设备节点 |
 | 3 | `dsh-sandbox-local` | Landlock：授权节点加入 readWrite |
-| 4 | `dsh-session` | `KNOWN_SESSION_EVENT_TYPES` 注册 `sandbox/device-root`（两个副本文件） |
-| 5 | `dsh-tool-bash-persistent` | 授权变化时重生持久 shell，下次 bash 用新沙箱参数 |
+| 4 | `dsh-tool-bash-persistent` | 授权变化时重生持久 shell，下次 bash 用新沙箱参数 |
+
+> 0.1.2-rc.1 起，`sandbox/device-root` / `sandbox/folder-root` /
+> `web/openai-codex-search-llm-request` 三个事件类型已上游注册进
+> `KNOWN_SESSION_EVENT_TYPES`，原补丁块 4（dsh-session 两个副本文件）已从
+> 脚本中移除；`scripts/patch-known-event-types.mjs` 整体退役删除。
 
 ## 2. `~/.dsh/settings.yaml` — 模型与 UI 偏好
 
@@ -73,20 +77,25 @@ provider-proxy:
     "@dsh-external/dsh-mobile"        // 声明了 dsh.bundle.patch，装入即生效
   ] } },
   "dependencies": {
-    "chunk-trim":         "link:<REPO>/chunk-trim",
     "msg-collapse":       "link:<REPO>/msg-collapse",
     "page-lazy":          "link:<REPO>/page-lazy",
     "flash-device-auth":  "link:<REPO>/flash-device-auth",
-    "provider-proxy":    "link:<REPO>/provider-proxy",
+    "folder-auth":        "link:<REPO>/folder-auth",
+    "provider-proxy":     "link:<REPO>/provider-proxy",
     "dsh-terminal":       "link:<REPO>/dsh-terminal",
     "dsh-mobile":         "link:<REPO>/dsh-mobile",
-    "tailscale-patch":    "link:<REPO>/tailscale-patch",
+    "dsh-rerun":          "link:<REPO>/dsh-rerun",
+    "dsh-codex":          "link:<REPO>/dsh-codex",
     "caddy-https":        "link:<REPO>/caddy-https",
     "threadtrail-client": "file:<REPO>/ThreadTrail/threadtrail-client",
     "threadtrail-server": "file:<REPO>/ThreadTrail/threadtrail-server"
   }
 }
 ```
+
+> 0.1.2-rc.1 起退役：`chunk-trim`（历史传输原生 chunk-row 打包，且 apiProxy
+> 服务已删除）与 `tailscale-patch`（randomUUID 回退、trustedHosts 配置、统一
+> /api 围栏全部原生）已从依赖与 cordis 树中移除。
 
 改完后在 profile 目录 `pnpm install` 并重启 `dsh web`。
 
@@ -107,10 +116,7 @@ provider-proxy:
     - id: terminal
       name: dsh-terminal
 
-# web 优化三件套（无配置）
-- insert:
-    - id: chunk-trim
-      name: chunk-trim
+# web 优化两件套（无配置）
 - insert:
     - id: page-lazy
       name: page-lazy
@@ -133,13 +139,17 @@ provider-proxy:
       name: provider-proxy
       # config 一般不需要；默认内置 openai -> api.openai.com（禁用）
 
-# tailscale-patch：浏览器信任围栏放行的主机名（自建 Headscale 无法签 TLS）
+# folder-auth：按会话授权目录（/fsauth add <绝对路径>）
 - insert:
-    - id: tailscale-patch
-      name: tailscale-patch
-      config:
-        trustedHosts:
-          - <your-host>.<your-tailnet>.ts.net   # 或自建域，如 host.inside.example.com
+    - id: folder-auth
+      name: folder-auth
+
+# tailscale-patch 已退役（0.1.2 原生）：浏览器信任围栏放行的主机名直接写进
+# 内建 connection 行的 config（自建 Headscale 无法签 TLS 的场景同样适用）：
+- id: connection
+  config:
+    trustedHosts:
+      - <your-host>.<your-tailnet>.ts.net   # 或自建域，如 host.inside.example.com
 
 # caddy-https：iOS PWA 的 HTTPS 前端（Web Push 需要安全上下文）
 - insert:
@@ -161,14 +171,15 @@ provider-proxy:
   config:
     root:
       - '.'
-      - <REPO>/chunk-trim
       - <REPO>/msg-collapse
       - <REPO>/page-lazy
       - <REPO>/flash-device-auth
+      - <REPO>/folder-auth
       - <REPO>/provider-proxy
       - <REPO>/dsh-terminal
       - <REPO>/dsh-mobile
-      - <REPO>/tailscale-patch
+      - <REPO>/dsh-rerun
+      - <REPO>/dsh-codex
       - <REPO>/caddy-https
 ```
 
@@ -181,25 +192,44 @@ provider-proxy:
 `~/.dsh/profiles/headless/` 只挂 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-headless`，
 需要 ThreadTrail 时再加 `threadtrail-server` 依赖并在 `cordis.patch.yml` insert。
 
-## 为什么补丁 1–5 不能做成纯插件
+## 为什么补丁 1–4 不能做成纯插件
 
 补丁目标全是 ESM 模块内部绑定（`writableRoots` 被 `dsh-fs-sandbox` /
 `dsh-sandbox-local` 以 live binding 直接 import；`reset` 是闭包私有），cordis 插件
 在运行时无法替换：
 
-- **1–3（沙箱执行层）**：无扩展点，必须文件补丁。flash-device-auth 已在运行时
+- **1–3（沙箱执行层）**：无扩展点，必须文件补丁。0.1.2-rc.1 的
+  `SandboxExecutionPolicy` 仍只有 `mode/workspaceRoot/sessionId`，全树没有任何
+  extra-roots 钩子或 `sandbox/*-root` 事件的原生消费者。flash-device-auth 已在运行时
   包装 `ctx.sandboxPolicy.resolve` 注入 `extraWritableRoots`，但执行层不认这个字段
   就无效——补丁正是让执行层认它。
-- **5（持久 shell 重生）**：`reset` 在模块闭包内。无补丁的替代路径（枚举
+- **4（持久 shell 重生）**：`reset` 在模块闭包内。无补丁的替代路径（枚举
   `ctx.terminals.sessions` 强杀终端）会让下一次 bash 调用先报一次
   "persistent bash send failed" 再自愈，体验差。
-- **4（事件类型注册）**：`session.append()` 不接受 `ignorable` 标记，自定义事件
-  类型不注册就会导致**重启后整段会话日志被拒载**。想完全去掉此补丁需把授权状态
-  从会话日志搬到插件自有 storage——但那样补丁 5 的事件触发链也断了，收益不抵
-  复杂度。
+- ~~事件类型注册~~：0.1.2-rc.1 已上游化（见第 1 节），不再是补丁内容。
 
 结论：保持「文件补丁 + 幂等脚本」是上游提供注册/钩子之前的最优解；脚本会在上游
 升级导致文本漂移时拒绝打补丁并报错，提醒更新。
+
+### 0.1.2-rc.1（2026-09-05）核查记录
+
+升级到 `0.1.2-rc.1` 后重跑 `patch-probe-roots.mjs`：保留的 4 个锚点
+（`dsh-sandbox` `writableRoots`、`dsh-sandbox-local` bwrap/Landlock、
+`dsh-tool-bash-persistent` `reset` 闭包）与 0.1.2 源码**逐字节匹配**，直接打上、
+自测通过。dsh-session 的两个事件类型块已上游化删除。
+逐项核查 0.1.2 是否新提供了插件侧 API 以取代文件补丁——结论：**仍然没有**。
+
+0.1.2 的重大架构变化（插件审计结论）：
+
+- `apiProxy` 服务（`dsh-host-apiproxy`）整体删除，历史 API 改为 typert Remote
+  `session/page` / `session/follow` → chunk-trim 退役；客户端 bundle 改走 combo URL
+  （`/plugins/??<ids>&rev=<hash>`，内存组合）→ caddy-https 的 loopback 补丁改为
+  「改写磁盘字节 + `clientModules.rebuilt(id)` 重组图」。
+- 历史传输与持久化原生打包 token-delta（`dsh-session/chunk-rows`，~56× 压缩）。
+- `/api` 围栏统一为 trustedHosts + browserAuth，`connection` 行支持原生
+  `trustedHosts` 配置，客户端原生 randomUUID 回退 → tailscale-patch 整体退役。
+- `dsh-client-runtime` 包停发：客户端 Context 即 `@deepseek-ai/cordis` 的
+  `Context`，`SnapshotStore` 在 `@deepseek-ai/dsh-client-store`。
 
 ### rc.7（2026-08-17）核查记录
 

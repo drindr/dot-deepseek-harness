@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 // repair-device-root-sessions.mjs
 //
-// One-off repair: sessions under a given DSH sessions workspace that contain
-// `sandbox/device-root` events (written by the flash-device-auth plugin) fail
-// to load in an older harness whose KNOWN_SESSION_EVENT_TYPES does not include
-// that type and whose writer did not mark the events ignorable.
+// LEGACY / DOWNGRADE TOOL — not needed on dsh ≥ 0.1.2-rc.1: that release
+// registers all three event types below in KNOWN_SESSION_EVENT_TYPES
+// upstream, so un-marked logs load fine. Keep this script only for trees
+// running dsh ≤ 0.1.1 (or logs shared with one).
 //
-// The events are purely informational (per-session device grants); they carry
+// One-off repair: sessions under a given DSH sessions workspace that contain
+// plugin-written custom events (`sandbox/device-root` from flash-device-auth,
+// `sandbox/folder-root` from folder-auth, `web/openai-codex-search-llm-request`
+// from dsh-codex) fail to load in a harness whose KNOWN_SESSION_EVENT_TYPES
+// does not include those types and whose writer did not mark them ignorable.
+//
+// The events are purely informational (grants / request logs); they carry
 // no surface/message semantics and their loss cannot change reconstruction.
 // This script rewrites each affected session's compressed log so those events
 // carry the envelope's `ignorable: true` marker (a sibling of `type`/`seq`/
-// `time`/`data`), which the reader already accepts and then skips.
+// `time`/`data`), which the reader already accepts and retains.
 //
 // FRAME PRESERVATION (critical): the JSONL persistence backend stores the log
 // as a concatenation of independently decodable, checksummed Zstandard frames
@@ -48,7 +54,12 @@ const sessionDirs = args.length > 0
 	? args
 	: [join(homedir(), ".dsh", "sessions", "--home-l-wuji_proj-ota-encryption--")];
 
-const EVENT_LINE = '"type":"sandbox/device-root"';
+const EVENT_TYPES = [
+	"sandbox/device-root", // flash-device-auth plugin: per-session device grants
+	"sandbox/folder-root", // folder-auth plugin: per-session folder grants
+	"web/openai-codex-search-llm-request" // dsh-codex plugin: search request log
+];
+const EVENT_LINES = EVENT_TYPES.map((t) => `"type":"${t}"`);
 const ZSTD_MAGIC = 4247762216; // 0xFD2FB528 little-endian
 
 /** The exact option the harness uses to compress each frame (checksummed). */
@@ -118,36 +129,46 @@ function scanZstdFrames(buffer) {
 	return { frames };
 }
 
-/** Insert `"ignorable":true,` after the opening brace of a device-root JSON line. */
+/** Insert `"ignorable":true,` after the opening brace of a custom-event JSON line. */
 function markIgnorable(line) {
 	const idx = line.indexOf("{");
 	if (idx === -1) return null;
+	// Idempotency: leave already-marked lines untouched (mixed logs exist from
+	// partial earlier repairs); inserting a duplicate key would still parse but
+	// bloats the line.
+	try {
+		const existing = JSON.parse(line);
+		if (EVENT_TYPES.includes(existing.type) && existing.ignorable === true) return line;
+	} catch {
+		// fall through
+	}
 	const candidate = line.slice(0, idx + 1) + '"ignorable":true,' + line.slice(idx + 1);
 	try {
 		const parsed = JSON.parse(candidate);
-		if (parsed.type === "sandbox/device-root" && parsed.ignorable === true) return candidate;
+		if (EVENT_TYPES.includes(parsed.type) && parsed.ignorable === true) return candidate;
 	} catch {
 		// fall through
 	}
 	return null;
 }
 
-/** Rewrite one frame's plaintext, marking device-root lines ignorable. */
+/** Rewrite one frame's plaintext, marking custom-event lines ignorable. */
 function rewriteFramePlaintext(plaintext) {
 	const text = plaintext.toString("utf8");
-	if (!text.includes(EVENT_LINE)) return { text: null, changed: 0, errors: 0 };
+	if (!EVENT_LINES.some((marker) => text.includes(marker))) return { text: null, changed: 0, errors: 0 };
 	const lines = text.split("\n");
 	let changed = 0;
 	let errors = 0;
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
-		if (!line.includes(EVENT_LINE)) continue;
+		if (!EVENT_LINES.some((marker) => line.includes(marker))) continue;
 		const marked = markIgnorable(line);
 		if (marked === null) {
 			errors += 1;
-			console.error(`  ✗ device-root line could not be marked: ${line.slice(0, 120)}`);
+			console.error(`  ✗ custom-event line could not be marked: ${line.slice(0, 120)}`);
 			continue;
 		}
+		if (marked === line) continue; // already ignorable — leave the frame untouched
 		lines[i] = marked;
 		changed += 1;
 	}
@@ -194,7 +215,7 @@ function processSessionDir(dir) {
 	}
 
 	if (totalChanged === 0) {
-		return { dir, status: "skip", detail: totalErrors > 0 ? "device-root lines failed to mark" : "no sandbox/device-root events" };
+		return { dir, status: "skip", detail: totalErrors > 0 ? "custom-event lines failed to mark" : "no custom events" };
 	}
 	if (totalErrors > 0) {
 		return { dir, status: "error", detail: `${totalErrors} line(s) failed to mark; aborting write` };
@@ -202,13 +223,13 @@ function processSessionDir(dir) {
 
 	const newData = Buffer.concat(outputs);
 	if (DRY_RUN) {
-		return { dir, status: "dry-run", detail: `${totalChanged} device-root event(s) would be marked ignorable across ${frames.length} frame(s)` };
+		return { dir, status: "dry-run", detail: `${totalChanged} custom event(s) would be marked ignorable across ${frames.length} frame(s)` };
 	}
 
 	const bakPath = logPath + ".bak";
 	if (!existsSync(bakPath)) copyFileSync(logPath, bakPath);
 	writeFileSync(logPath, newData);
-	return { dir, status: "repaired", detail: `${totalChanged} device-root event(s) marked ignorable (frames preserved: ${frames.length})`, backup: bakPath };
+	return { dir, status: "repaired", detail: `${totalChanged} custom event(s) marked ignorable (frames preserved: ${frames.length})`, backup: bakPath };
 }
 
 let total = 0;

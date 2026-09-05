@@ -26,3 +26,5 @@ flash-device-auth/node_modules/
 *.pfx
 pki/
 authorities/
+.npm-cache-local/
+.pnpm-store-local/

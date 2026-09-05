@@ -9,10 +9,14 @@
 //   1. @deepseek-ai/dsh-sandbox              writableRoots()      → seatbelt + fs fence
 //   2. @deepseek-ai/dsh-sandbox-local        bwrapProfileArgs()   → bind probe nodes into the bwrap container
 //   3. @deepseek-ai/dsh-sandbox-local        landlockProfileArgs() → Landlock write grants for probe nodes
-//   4. @deepseek-ai/dsh-session              KNOWN_SESSION_EVENT_TYPES → accept `sandbox/device-root`
-//      (lib/index.js and lib/types/known-event-types.js) grant events on session-log reload
-//   5. @deepseek-ai/dsh-tool-bash-persistent respawn the persistent shell when grants change,
+//   4. @deepseek-ai/dsh-tool-bash-persistent respawn the persistent shell when grants change,
 //      so the next bash call rebuilds its sandbox with the updated --dev-bind mounts
+//
+// dsh 0.1.2 note: the KNOWN_SESSION_EVENT_TYPES registrations
+// (`sandbox/device-root`, `sandbox/folder-root`, and dsh-codex's
+// `web/openai-codex-search-llm-request`) were upstreamed into dsh-session —
+// those patch blocks were removed from this script (a 0.1.1 tree needs the
+// script from git history instead).
 //
 // Usage:
 //   node scripts/patch-probe-roots.mjs          # apply (idempotent)
@@ -103,40 +107,12 @@ const PATCHES = [
 		verify: (source) => source.includes("for (const root of policy.extraWritableRoots ?? []) readWrite.push(root)")
 	},
 	{
-		// The persistence read path REFUSES to load a session log containing an
-		// event type outside KNOWN_SESSION_EVENT_TYPES (unless marked ignorable,
-		// which plugin code cannot set through Session.append). flash-device-auth
-		// persists grants as `sandbox/device-root` session events, so the type
-		// must be registered here or any session that used /flashdev becomes
-		// unloadable after a restart.
-		file: "dsh-session/lib/index.js",
-		original: `\t"plan/mode",
-\t"request/context",
-\t"request/header",
-\t"sandbox/mode",`,
-		patched: `\t"plan/mode",
-\t"request/context",
-\t"request/header",
-\t"sandbox/device-root",
-\t"sandbox/mode",`,
-		verify: (source) => source.includes(`\t"sandbox/device-root",`)
-	},
-	{
-		// Same registration in the generated catalog twin module (both copies
-		// ship in the published package).
-		file: "dsh-session/lib/types/known-event-types.js",
-		original: `    'plan/mode',
-    'request/context',
-    'request/header',
-    'sandbox/mode',`,
-		patched: `    'plan/mode',
-    'request/context',
-    'request/header',
-    'sandbox/device-root',
-    'sandbox/mode',`,
-		verify: (source) => source.includes(`    'sandbox/device-root',`)
-	},
-	{
+		// dsh 0.1.2-rc.1 upstreamed "sandbox/device-root" / "sandbox/folder-root"
+		// (and dsh-codex's "web/openai-codex-search-llm-request") into
+		// KNOWN_SESSION_EVENT_TYPES (dsh-session/lib/index.js:939-941 and
+		// lib/types/known-event-types.js:46-48), so the two dsh-session patch
+		// blocks this script used to carry are gone. Sessions with grant events
+		// now load on a pristine tree.
 		file: "dsh-tool-bash-persistent/lib/index.js",
 		original: `\tconst reset = async (owner, reason) => {
 \t\tpending.delete(owner);

@@ -22,11 +22,13 @@
  *     root needed).
  *  3. Serve the internal root CA at /plugins/caddy-https/root.crt plus a
  *     small install-guide page, so phones can fetch and trust the CA easily.
- *  4. Serve the client-connection browser bundle with the configured front
- *     host treated as loopback (src/host/loopback-client-patch.ts), so the
+ *  4. Patch the client-connection browser bundle so the configured front
+ *     host is treated as loopback (src/host/loopback-client-patch.ts), so the
  *     settings mirror uses host persistence and Settings → Models works
  *     through the proxy instead of failing with "settings are unavailable
- *     in this browser".
+ *     in this browser". dsh 0.1.2: bundles are served as in-memory combos, so
+ *     the patch rewrites the bundle on disk (pristine backup kept) and calls
+ *     the official `clientModules.rebuilt(id)` entry point to recompose.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -49,6 +51,7 @@ interface WebServerLike {
 /** Minimal structural face of the clientModules service (no type dependency). */
 interface ClientModulesLike {
   clientPath(id: string): string | undefined
+  rebuilt(id: string): string | undefined
 }
 
 export const inject = ['webServer', 'clientModules']
@@ -88,12 +91,12 @@ export function apply(ctx: Context, config: CaddyConfig): void {
     const disposeRoutes = registerAssetRoutes(web, config)
     const disposePush = registerPushRoutes(web)
     const disposeTriggers = registerPushTriggers(ctx)
-    // Serve the connection client bundle with the front host treated as
-    // loopback, so settings surfaces work through the proxy (see
+    // Patch the connection client bundle so the front host is treated as
+    // loopback and settings surfaces work through the proxy (see
     // host/loopback-client-patch.ts). Skipped without a configured host.
     const disposeLoopbackPatch = config.host === ''
       ? () => {}
-      : registerLoopbackClientPatch(web, clientModules, config.host)
+      : registerLoopbackClientPatch(clientModules, config.host)
     let handle: CaddyHandle | null = null
     let stopped = false
 

@@ -84,16 +84,20 @@ function defaultTask(cwd) {
 
 /**
  * Aggregate the last assistant text and turn outcome in one owned interval.
- * @param events - the durable session events to summarize.
+ * dsh 0.1.2 removed the public `session.events` array; iterate the durable
+ * log through `session.eventAt(seq)` exactly like `dsh-headless` does.
+ * @param session - the recovery session whose events to summarize.
  * @param firstSeq - the sequence boundary of this recovery turn.
  * @returns the final text and turn-end reason.
  */
-function summarize(events, firstSeq) {
+function summarize(session, firstSeq) {
   let started = false;
   let text = "";
   let reason;
-  for (const event of events) {
-    if (event.seq < firstSeq) continue;
+  const length = session.seq;
+  for (let seq = firstSeq; seq < length; seq++) {
+    const event = session.eventAt(seq);
+    if (event === undefined) throw new Error(`recovery summary cannot read seq ${seq} below captured length ${length}`);
     if (event.type === "turn/start") {
       started = true;
       continue;
@@ -146,7 +150,7 @@ async function run(ctx, config, io) {
   agent.followup(createUserMessage(task));
   await agent.whenIdle();
   await sessions.flush(agent.session);
-  const outcome = summarize(agent.session.events, firstSeq);
+  const outcome = summarize(agent.session, firstSeq);
   io.stdout.write(outcome.text + "\n");
   if (outcome.reason?.kind === "error") {
     io.stderr.write(`dsh: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`);

@@ -4,32 +4,29 @@ DeepSeek Harness（dsh）的插件集合：一组 host / client 侧的 web 优�
 烧录设备授权插件（附沙箱补丁脚本）、一个用于救活坏插件的 recovery bundle，以及若干
 git 子模块（集成终端、移动端 PWA、ThreadTrail 操作日志）。
 
+> **dsh 0.1.2-rc.1 适配（2026-09-05）**：`chunk-trim`（历史传输原生 chunk-row 打包 +
+> apiProxy 服务删除）与 `tailscale-patch`（randomUUID 回退 / trustedHosts 配置 / 统一
+> /api 围栏全部原生）已退役删除；`page-lazy` 只剩空闲预取一半；`caddy-https` 的
+> loopback 补丁改为「磁盘字节改写 + `clientModules.rebuilt()` 重组图」；沙箱补丁的
+> 事件类型块已上游化。详见 [`docs/local-setup.md`](docs/local-setup.md) 的 0.1.2
+> 核查记录。
+
 ## 目录总览
 
 | 路径 | 类型 | 作用 |
 |---|---|---|
-| [`chunk-trim/`](chunk-trim/README.md) | host web 插件 | 剪掉历史页里的 `assistant/chunk` token-delta 洪峰 |
 | [`msg-collapse/`](msg-collapse/README.md) | client web 插件 | 折叠会话视图里的超长用户消息 |
-| [`page-lazy/`](page-lazy/README.md) | client web 插件 | 会话窗口自适应分页 + 空闲预取 |
+| [`page-lazy/`](page-lazy/README.md) | client web 插件 | 会话窗口空闲预取（scroll-up 预热） |
 | [`flash-device-auth/`](flash-device-auth/README.md) | host 插件 | 按会话授权烧录设备（`/flashdev`） |
 | [`folder-auth/`](folder-auth/README.md) | host 插件 | 按会话授权任意目录（`/fsauth`） |
 | [`provider-proxy/`](provider-proxy/README.md) | host + client 插件 | 按 provider 配置 HTTP(S) 代理，带 Settings UI |
 | [`recovery/`](recovery/README.md) | host bundle | `dsh --profile recovery` 极简救活会话 |
-| [`scripts/`](scripts/patch-probe-roots.mjs) | 工具 | 沙箱补丁（flash-device-auth 的依赖） |
-| [`ThreadTrail/`](ThreadTrail/README.md) | 子模块 | 提交间操作日志 / 代码↔会话回放 / rewind |
+| [`scripts/`](scripts/patch-probe-roots.mjs) | 工具 | 沙箱补丁（flash-device-auth / folder-auth 的依赖） |
+| [`ThreadTrail/`](ThreadTrail/README.md) | 子模块 | git diff 对比面板 / 代码↔会话回放 |
 | [`dsh-terminal/`](dsh-terminal/README.md) | 子模块 | VSCode 风格集成终端面板 |
 | [`dsh-mobile/`](dsh-mobile/README.md) | 子模块 | 移动端 PWA 适配（`@dsh-external/dsh-mobile`） |
 
 ## 插件
-
-### chunk-trim（host）
-
-打开会话时 `session.history {maxMessages: 50}` 会返回整段原始事件窗口，其中 ~94% 是
-token 粒度的流式 `assistant/chunk`（`reasoning-delta` / `text-delta` /
-`tool-call-delta`），单页可达 1.5–4.1 万事件 / 3.5–7.8 MB。本插件包装
-`ctx.apiProxy.sessions.history` 与 `subagents.history`，去掉这些 delta 事件（保留页首
-/页尾边界与稀疏的非 delta chunk），单页降到几百事件。轨迹面板对**未完成步骤**会失去
-逐 token 细节，实时流式不受影响。
 
 ### msg-collapse（client）
 
@@ -39,9 +36,12 @@ token 粒度的流式 `assistant/chunk`（`reasoning-delta` / `text-delta` /
 
 ### page-lazy（client）
 
-在 chunk-trim 之上设计会话窗口的**分页大小**与**懒加载时机**：首次打开只拉 30 条消息
-（快速首屏），后续页面 50 条；打开后在空闲时（`requestIdleCallback`）预取一页，且
-自限只在 `events.length < 30 + 50` 时触发一次，不级联。手动「load earlier」按钮保留。
+在真实 cold→open 之后于空闲时（`requestIdleCallback`）预取一页历史，让上翻很少
+撞到加载圈；每次打开只触发一次，不级联。手动「load earlier」按钮保留。
+
+> 0.1.2 起**只剩这一半**：原来的 30/50 自适应页大小所包装的 `session.history`
+> seam 已不存在（分页写死 `PAGE_MESSAGES = 50`），且 0.1.2 原生打包 token-delta
+> （chunk-rows，~56× 压缩），页大小不再是问题。
 
 ### flash-device-auth（host）
 
@@ -107,7 +107,7 @@ node scripts/build-plugins.mjs   # 统一驱动：逐个执行各插件自己声
 | `dsh-rerun/` | `node build.mjs` | `lib/index.js`, `lib/client.js` |
 | `folder-auth/` | `node build.mjs` | `lib/index.js` |
 
-> 无 build 脚本、`lib/` 直接提交的插件（`chunk-trim` / `msg-collapse` /
+> 无 build 脚本、`lib/` 直接提交的插件（`msg-collapse` /
 > `page-lazy` / `flash-device-auth` / `provider-proxy`）不需要构建。
 
 ## 安装
@@ -118,14 +118,14 @@ node scripts/build-plugins.mjs   # 统一驱动：逐个执行各插件自己声
 ```bash
 PLUGIN_SRC=/path/to/dsh-plugin
 mkdir -p "$HOME/.dsh/plugins/@dsh-external"
-ln -s "$PLUGIN_SRC/chunk-trim" "$HOME/.dsh/plugins/chunk-trim"
+ln -s "$PLUGIN_SRC/msg-collapse" "$HOME/.dsh/plugins/msg-collapse"
 # 其它插件同理……
 ```
 
 然后在 `~/.dsh/profiles/web/package.json` 里以 `link:../../plugins/<name>` 加入依赖，
 在 `cordis.patch.yml` 里 `insert` 对应 id，`pnpm install` 后**重启 `dsh web`**。
 
-- **web 优化插件**（chunk-trim / msg-collapse / page-lazy）走上面的标准流程。
+- **web 优化插件**（msg-collapse / page-lazy）走上面的标准流程。
 - **provider-proxy** 走上面的标准流程，Settings UI 在 web 设置里自动出现。
 - **flash-device-auth** 需先打沙箱补丁（见上文），再照常挂进 profile。
 - **recovery** 用 `dsh plugin --profile recovery add link:<src>/recovery` 安装，然后
